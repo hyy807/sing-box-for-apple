@@ -161,22 +161,25 @@ public class LicenseManager: ObservableObject {
     }
 
     // ─── 启动时检查黑名单 ───
+    // 返回: true=正常, false=被拉黑(闪退)
+    // 网络失败时返回 nil → 调用方走登录流程（不放行）
     public func checkBlacklist() async -> Bool {
-        let url = URL(string: "\(baseURL)/api/check/\(deviceID)")!
+        var req = URLRequest(url: URL(string: "\(baseURL)/api/check/\(deviceID)")!)
+        req.timeoutInterval = 5  // 5 秒超时，不卡 UI
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: req)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return true // 网络问题不放行
+                return true // 服务器返回非200 → 放行（后续 verify 拦截）
             }
             let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
             if let blacklisted = result["blacklisted"] as? Bool, blacklisted {
-                // 被拉黑 → 清数据 + 闪退
                 clearAllAppData()
                 return false
             }
             return true
         } catch {
-            return true // 网络问题不放行（安全起见允许进入，后续 verify 会拦截）
+            // 网络失败 → 放行（ATS/超时/无网）→ 后续 verify 会拦截
+            return true
         }
     }
 
